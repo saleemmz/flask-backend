@@ -1,6 +1,5 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from extensions import db, mail, cors, migrate
-from flask import send_from_directory
 import os
 from dotenv import load_dotenv
 from datetime import timedelta
@@ -15,7 +14,7 @@ import time
 import atexit
 from sqlalchemy import text
 
-# blueprints
+# Blueprints
 from routes.auth import auth_bp
 from routes.profile import profile_bp
 from routes.passwordrecovery import password_recovery_bp
@@ -46,8 +45,13 @@ def check_deadlines_job():
 def create_app():
     global scheduler
     app = Flask(__name__, static_folder='uploads')
+
+    # Detect environment
+    app_env = os.getenv('APP_ENV', 'development').lower()
+
+    # Base config
     app.config['UPLOAD_FOLDER'] = '/Users/promobile/Desktop/SPT/Backend/uploads'
-    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit 
 
     app.config.update({
         'SECRET_KEY': os.getenv('SECRET_KEY'),
@@ -66,11 +70,12 @@ def create_app():
         'JWT_SECRET_KEY': os.getenv('JWT_SECRET_KEY'),
         'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=6),
         'JWT_TOKEN_LOCATION': ['headers', 'cookies'],
-        'JWT_COOKIE_SECURE': True,
+        # Cookie security based on environment
+        'JWT_COOKIE_SECURE': True if app_env == 'production' else False,
         'JWT_COOKIE_CSRF_PROTECT': False,
         'JWT_ACCESS_COOKIE_PATH': '/',
         'JWT_REFRESH_COOKIE_PATH': '/',
-        'JWT_COOKIE_SAMESITE': 'strict',
+        'JWT_COOKIE_SAMESITE': 'Strict' if app_env == 'production' else 'Lax',
         'MAIL_SERVER': os.getenv('MAIL_SERVER'),
         'MAIL_PORT': int(os.getenv('MAIL_PORT')),
         'MAIL_USE_TLS': os.getenv('MAIL_USE_TLS').lower() == 'true',
@@ -80,6 +85,20 @@ def create_app():
         'TELEGRAM_BOT_TOKEN': os.getenv('TELEGRAM_BOT_TOKEN')
     })
 
+    # Set CORS origins per environment
+    if app_env == 'production':
+        cors_origins = [
+            "https://secureprojectracker.netlify.app"
+        ]
+        debug_mode = False
+    else:
+        cors_origins = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173"
+        ]
+        debug_mode = True
+
+    # Initialize extensions with retry logic
     def initialize_extensions(app):
         max_retries = 3
         retry_delay = 2
@@ -91,11 +110,7 @@ def create_app():
                 cors.init_app(
                     app,
                     supports_credentials=True,
-                    origins=[
-                        "http://localhost:5173",
-                        "http://127.0.0.1:5173",
-                        "https://secureprojectracker.netlify.app"
-                    ],
+                    origins=cors_origins,
                     allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
                     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                     expose_headers=["Authorization", "Set-Cookie"],
@@ -116,13 +131,14 @@ def create_app():
 
     initialize_extensions(app)
 
+    # Scheduler init
     if scheduler is None:
         scheduler = BackgroundScheduler()
         db.app = app
         scheduler.add_job(
-            func=check_deadlines_job,
-            trigger="interval",
-            minutes=30,
+            func=check_deadlines_job, 
+            trigger="interval", 
+            minutes=30,  
             id='deadline_check',
             replace_existing=True
         )
@@ -133,8 +149,8 @@ def create_app():
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(profile_bp, url_prefix='/profile')
     app.register_blueprint(password_recovery_bp, url_prefix='/auth')
-    app.register_blueprint(admindashboard_bp, url_prefix='/admin')
-    app.register_blueprint(task_bp, url_prefix='/tasks')
+    app.register_blueprint(admindashboard_bp, url_prefix='/admin') 
+    app.register_blueprint(task_bp,url_prefix='/tasks' )
     app.register_blueprint(manager_bp, url_prefix='/manager')
     app.register_blueprint(staff_bp, url_prefix='/staff')
     app.register_blueprint(keyholder_bp, url_prefix='/keyholder')
@@ -143,22 +159,16 @@ def create_app():
     app.register_blueprint(activity_bp, url_prefix='/activity')
     app.register_blueprint(settings_bp, url_prefix='/settings')
 
-    # Add CORS headers to all responses
-    @app.after_request
-    def add_cors_headers(response):
-        origin = request.headers.get('Origin')
-        allowed_origins = [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "https://secureprojectracker.netlify.app"
-        ]
-        if origin in allowed_origins:
-            app.logger.info(f"Adding CORS headers for origin: {origin}")
-            response.headers['Access-Control-Allow-Origin'] = origin
-            response.headers['Access-Control-Allow-Credentials'] = 'true'
-            response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization,Accept,X-Requested-With'
-            response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
-        return response
+    # Preflight handler for CORS
+    @app.before_request
+    def handle_preflight():
+        if request.method == "OPTIONS":
+            response = jsonify({"status": "preflight"})
+            response.headers.add("Access-Control-Allow-Origin", request.headers.get('Origin'))
+            response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization,Accept,X-Requested-With")
+            response.headers.add("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+            response.headers.add("Access-Control-Allow-Credentials", "true")
+            return response
 
     @app.route('/')
     def index():
@@ -175,23 +185,23 @@ def create_app():
         except Exception as e:
             app.logger.error(f"Database test failed: {str(e)}")
             return jsonify({'error': 'Database connection failed', 'details': str(e)}), 500
-
+    
     @app.route('/avatars/<filename>')
     def serve_avatar(filename):
         return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'avatars'), filename)
-
+    
     @app.route('/task-files/<task_id>/<filename>')
     def serve_task_file(task_id, filename):
         try:
             safe_filename = secure_filename(filename)
             if not safe_filename or safe_filename != filename:
                 return jsonify({'error': 'Invalid filename'}), 400
-            
+                
             directory = os.path.join(app.config['UPLOAD_FOLDER'], 'tasks', task_id)
             file_path = os.path.join(directory, safe_filename)
             if not os.path.exists(file_path):
                 return jsonify({'error': 'File not found'}), 404
-            
+                
             return send_from_directory(directory, safe_filename)
         except Exception as e:
             app.logger.error(f"Error serving task file: {str(e)}")
@@ -205,6 +215,7 @@ def create_app():
         response.headers['Content-Security-Policy'] = "default-src 'self'"
         return response
 
+    # Error handlers
     @app.errorhandler(422)
     def handle_unprocessable_entity(err):
         return jsonify({
@@ -231,7 +242,7 @@ def create_app():
     @app.errorhandler(ExpiredSignatureError)
     def handle_expired_token(e):
         return jsonify({
-            "error": "Session expired",
+            "error": "Session expired", 
             "message": "Your login session has expired. Please login again.",
             "action": "login_required",
             "redirect": "/login"
@@ -241,7 +252,7 @@ def create_app():
     def handle_missing_token(e):
         return jsonify({
             "error": "Session expired",
-            "message": "Your login session has expired. Please login again.",
+            "message": "Your login session has expired. Please login again.", 
             "action": "login_required",
             "redirect": "/login"
         }), 401
@@ -255,6 +266,9 @@ def create_app():
 app = create_app()
 
 if __name__ == '__main__':
+    app_env = os.getenv('APP_ENV', 'development').lower()
+    debug_mode = app_env == 'development'
+
     with app.app_context():
         try:
             db.create_all()
@@ -263,4 +277,4 @@ if __name__ == '__main__':
             app.logger.error(f"Database initialization failed: {str(e)}")
             raise
 
-    app.run(debug=False, port=5001, host='0.0.0.0')
+    app.run(debug=debug_mode, port=5001, host='0.0.0.0')
