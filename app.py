@@ -1,5 +1,6 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request
 from extensions import db, mail, cors, migrate
+from flask import send_from_directory
 import os
 from dotenv import load_dotenv
 from datetime import timedelta
@@ -9,10 +10,12 @@ import pymysql
 from flask_jwt_extended import JWTManager
 from flask_jwt_extended.exceptions import NoAuthorizationError
 from jwt import ExpiredSignatureError
+from flask import send_from_directory
 from apscheduler.schedulers.background import BackgroundScheduler
 import time
 import atexit
 from sqlalchemy import text
+from flask_jwt_extended import create_access_token, set_access_cookies
 
 # blueprints
 from routes.auth import auth_bp
@@ -31,9 +34,11 @@ from routes.settings import settings_bp
 pymysql.install_as_MySQLdb()
 load_dotenv()
 
+# Global scheduler variable
 scheduler = None
 
 def check_deadlines_job():
+    """Wrapper function for the scheduler job"""
     try:
         from utils.sendnotification import check_and_notify_approaching_deadlines
         with db.app.app_context():
@@ -47,8 +52,6 @@ def create_app():
     app = Flask(__name__, static_folder='uploads')
     app.config['UPLOAD_FOLDER'] = '/Users/promobile/Desktop/SPT/Backend/uploads'
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit 
-
-    env = os.getenv('FLASK_ENV', 'development')
 
     app.config.update({
         'SECRET_KEY': os.getenv('SECRET_KEY'),
@@ -67,30 +70,19 @@ def create_app():
         'JWT_SECRET_KEY': os.getenv('JWT_SECRET_KEY'),
         'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=6),
         'JWT_TOKEN_LOCATION': ['headers', 'cookies'],
+        'JWT_COOKIE_SECURE': True,
+        'JWT_COOKIE_CSRF_PROTECT': False,
         'JWT_ACCESS_COOKIE_PATH': '/',
         'JWT_REFRESH_COOKIE_PATH': '/',
+        'JWT_COOKIE_SAMESITE': 'strict',
         'MAIL_SERVER': os.getenv('MAIL_SERVER'),
         'MAIL_PORT': int(os.getenv('MAIL_PORT')),
         'MAIL_USE_TLS': os.getenv('MAIL_USE_TLS').lower() == 'true',
         'MAIL_USERNAME': os.getenv('MAIL_USERNAME'),
         'MAIL_PASSWORD': os.getenv('MAIL_PASSWORD'),
         'MAIL_DEFAULT_SENDER': os.getenv('MAIL_DEFAULT_SENDER'),
-        'TELEGRAM_BOT_TOKEN': os.getenv('TELEGRAM_BOT_TOKEN'),
+        'TELEGRAM_BOT_TOKEN': os.getenv('TELEGRAM_BOT_TOKEN')
     })
-
-    # Production vs Development cookie settings
-    if env == 'production':
-        app.config.update({
-            'JWT_COOKIE_SECURE': True,        # Only send cookie over HTTPS
-            'JWT_COOKIE_SAMESITE': 'None',    # Needed for cross-site cookie
-            'JWT_COOKIE_CSRF_PROTECT': True,  # Enable CSRF protection in prod
-        })
-    else:
-        app.config.update({
-            'JWT_COOKIE_SECURE': False,
-            'JWT_COOKIE_SAMESITE': 'Lax',
-            'JWT_COOKIE_CSRF_PROTECT': False,
-        })
 
     # Initialize extensions with retry logic
     def initialize_extensions(app):
@@ -104,11 +96,7 @@ def create_app():
                 cors.init_app(
                     app,
                     supports_credentials=True,
-                    origins=[
-                        "http://localhost:5173",
-                        "http://127.0.0.1:5173",
-                        "https://secureprojectracker.netlify.app"
-                    ],
+                    origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://secureprojectracker.netlify.app"],
                     allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
                     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                     expose_headers=["Authorization", "Set-Cookie"],
@@ -143,6 +131,7 @@ def create_app():
         )
         scheduler.start()
         
+        # Ensure scheduler shuts down properly
         atexit.register(lambda: scheduler.shutdown() if scheduler else None)
 
     # Register blueprints
@@ -159,7 +148,16 @@ def create_app():
     app.register_blueprint(activity_bp, url_prefix='/activity')
     app.register_blueprint(settings_bp, url_prefix='/settings')
 
-    # Remove manual preflight CORS handling (Flask-CORS handles it)
+    # Preflight handler for CORS
+    @app.before_request
+    def handle_preflight():
+        if request.method == "OPTIONS":
+            response = jsonify({"status": "preflight"})
+            response.headers.add("Access-Control-Allow-Origin", request.headers.get('Origin'))
+            response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization,Accept,X-Requested-With")
+            response.headers.add("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+            response.headers.add("Access-Control-Allow-Credentials", "true")
+            return response
 
     @app.route('/')
     def index():
@@ -176,28 +174,37 @@ def create_app():
         except Exception as e:
             app.logger.error(f"Database test failed: {str(e)}")
             return jsonify({'error': 'Database connection failed', 'details': str(e)}), 500
+    
 
+    
+    # Serve avatar files
     @app.route('/avatars/<filename>')
     def serve_avatar(filename):
         return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'avatars'), filename)
-
+    
+    # FIXED: Serve task files with proper path handling
     @app.route('/task-files/<task_id>/<filename>')
     def serve_task_file(task_id, filename):
-        try:
-            safe_filename = secure_filename(filename)
-            if not safe_filename or safe_filename != filename:
-                return jsonify({'error': 'Invalid filename'}), 400
-
-            directory = os.path.join(app.config['UPLOAD_FOLDER'], 'tasks', task_id)
-            file_path = os.path.join(directory, safe_filename)
-            if not os.path.exists(file_path):
-                return jsonify({'error': 'File not found'}), 404
-
-            return send_from_directory(directory, safe_filename)
-        except Exception as e:
-            app.logger.error(f"Error serving task file: {str(e)}")
-            return jsonify({'error': 'Failed to serve file'}), 500
-
+     try:
+        # Only allow paths within the uploads/tasks directory
+        safe_filename = secure_filename(filename)
+        if not safe_filename or safe_filename != filename:
+            return jsonify({'error': 'Invalid filename'}), 400
+            
+        # Construct the expected path
+        directory = os.path.join(app.config['UPLOAD_FOLDER'], 'tasks', task_id)
+        
+        # Verify the file exists
+        file_path = os.path.join(directory, safe_filename)
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found'}), 404
+            
+        return send_from_directory(directory, safe_filename)
+        
+     except Exception as e:
+        app.logger.error(f"Error serving task file: {str(e)}")
+        return jsonify({'error': 'Failed to serve file'}), 500
+    
     @app.after_request
     def add_security_headers(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -206,6 +213,7 @@ def create_app():
         response.headers['Content-Security-Policy'] = "default-src 'self'"
         return response
 
+    # Error handlers - Updated for consistent session expiry handling
     @app.errorhandler(422)
     def handle_unprocessable_entity(err):
         return jsonify({
@@ -264,4 +272,4 @@ if __name__ == '__main__':
             app.logger.error(f"Database initialization failed: {str(e)}")
             raise
 
-    app.run(debug=True, port=5001, host='0.0.0.0')
+    app.run(debug=False, port=5001, host='0.0.0.0')
