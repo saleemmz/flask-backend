@@ -1,0 +1,7 @@
+{
+  "has_access": true,
+  "is_encrypted": true,
+  "is_key_holder": true,
+  "message": "Redirecting to key holder page",
+  "redirect": "keyholder"
+}
