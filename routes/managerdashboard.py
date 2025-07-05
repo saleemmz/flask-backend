@@ -18,7 +18,7 @@ from utils.sendnotification import (
     notify_task_deletion,create_in_app_notification
 )
 
-manager_bp = Blueprint('manager', __name__, url_prefix='/api/manager')
+manager_bp = Blueprint('manager', __name__)
 logger = logging.getLogger(__name__)
 
 def handle_session_expired():

@@ -20,7 +20,7 @@ from utils.sendnotification import (
     notify_task_due
 )
 
-task_bp = Blueprint('task', __name__, url_prefix='/api/tasks')
+task_bp = Blueprint('tasks', __name__)
 logger = logging.getLogger(__name__)
 
 @task_bp.route('/create', methods=['POST'])

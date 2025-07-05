@@ -20,7 +20,7 @@ from utils.sendnotification import (
 )
 
 
-staff_bp = Blueprint('staff', __name__, url_prefix='/api/staff')
+staff_bp = Blueprint('staff', __name__)
 logger = logging.getLogger(__name__)
 
 def handle_session_expired():
