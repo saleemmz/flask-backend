@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from datetime import timedelta
 from flask_migrate import Migrate
 from werkzeug.utils import secure_filename
+from flask_jwt_extended import jwt_required
 import pymysql
 from flask_jwt_extended import JWTManager
 from flask_jwt_extended.exceptions import NoAuthorizationError
@@ -48,10 +49,17 @@ def create_app():
 
     # Detect environment
     app_env = os.getenv('APP_ENV', 'development').lower()
+    hostname = os.getenv("FLASK_RUN_HOST", "")
+    is_dev = app_env != 'production' or hostname.startswith("127.") or "localhost" in hostname
+    print("APP_ENV =", app_env)
+    print("FLASK_RUN_HOST =", hostname)
+    print("Is Development =", is_dev)
 
     # Base config
-    app.config['UPLOAD_FOLDER'] = '/Users/promobile/Desktop/SPT/Backend/uploads'
-    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit 
+    upload_folder = os.getenv('UPLOAD_FOLDER', os.path.join(os.getcwd(), 'uploads'))
+    app.config['UPLOAD_FOLDER'] = upload_folder
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
     app.config.update({
         'SECRET_KEY': os.getenv('SECRET_KEY'),
@@ -69,13 +77,13 @@ def create_app():
         },
         'JWT_SECRET_KEY': os.getenv('JWT_SECRET_KEY'),
         'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=6),
-        'JWT_TOKEN_LOCATION': ['headers', 'cookies'],
-        # Cookie security based on environment
-        'JWT_COOKIE_SECURE': True if app_env == 'production' else False,
+        'JWT_TOKEN_LOCATION': ['cookies', 'headers'],
         'JWT_COOKIE_CSRF_PROTECT': False,
         'JWT_ACCESS_COOKIE_PATH': '/',
         'JWT_REFRESH_COOKIE_PATH': '/',
-        'JWT_COOKIE_SAMESITE': 'Strict' if app_env == 'production' else 'Lax',
+        'JWT_COOKIE_SECURE': not is_dev,
+        'JWT_COOKIE_SAMESITE': 'None' if not is_dev else 'Lax',
+        'JWT_ACCESS_COOKIE_NAME': 'access_token_cookie',
         'MAIL_SERVER': os.getenv('MAIL_SERVER'),
         'MAIL_PORT': int(os.getenv('MAIL_PORT')),
         'MAIL_USE_TLS': os.getenv('MAIL_USE_TLS').lower() == 'true',
@@ -85,24 +93,16 @@ def create_app():
         'TELEGRAM_BOT_TOKEN': os.getenv('TELEGRAM_BOT_TOKEN')
     })
 
-    # Set CORS origins per environment
     if app_env == 'production':
-        cors_origins = [
-            "https://secureprojectracker.netlify.app"
-        ]
+        cors_origins = ["https://secureprojectracker.netlify.app"]
         debug_mode = False
     else:
-        cors_origins = [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173"
-        ]
+        cors_origins = ["http://localhost:5173"]
         debug_mode = True
 
-    # Initialize extensions with retry logic
     def initialize_extensions(app):
         max_retries = 3
         retry_delay = 2
-        
         for attempt in range(max_retries):
             try:
                 db.init_app(app)
@@ -131,26 +131,24 @@ def create_app():
 
     initialize_extensions(app)
 
-    # Scheduler init
     if scheduler is None:
         scheduler = BackgroundScheduler()
         db.app = app
         scheduler.add_job(
-            func=check_deadlines_job, 
-            trigger="interval", 
-            minutes=30,  
+            func=check_deadlines_job,
+            trigger="interval",
+            minutes=30,
             id='deadline_check',
             replace_existing=True
         )
         scheduler.start()
         atexit.register(lambda: scheduler.shutdown() if scheduler else None)
 
-    # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(profile_bp, url_prefix='/profile')
     app.register_blueprint(password_recovery_bp, url_prefix='/auth')
-    app.register_blueprint(admindashboard_bp, url_prefix='/admin') 
-    app.register_blueprint(task_bp,url_prefix='/tasks' )
+    app.register_blueprint(admindashboard_bp, url_prefix='/admin')
+    app.register_blueprint(task_bp, url_prefix='/tasks')
     app.register_blueprint(manager_bp, url_prefix='/manager')
     app.register_blueprint(staff_bp, url_prefix='/staff')
     app.register_blueprint(keyholder_bp, url_prefix='/keyholder')
@@ -158,8 +156,18 @@ def create_app():
     app.register_blueprint(support_bp, url_prefix='/support')
     app.register_blueprint(activity_bp, url_prefix='/activity')
     app.register_blueprint(settings_bp, url_prefix='/settings')
+    
+    @app.route('/test-token')
+    @jwt_required()
+    def test_token():
+     from flask_jwt_extended import get_jwt_identity
+     return jsonify({'user_id': get_jwt_identity()})
+ 
+    @app.before_request
+    def log_token():
+     token = request.cookies.get("access_token_cookie")
+     print("JWT Cookie Token:", token)
 
-    # Preflight handler for CORS
     @app.before_request
     def handle_preflight():
         if request.method == "OPTIONS":
@@ -174,34 +182,34 @@ def create_app():
     def index():
         return {'message': 'Welcome to SPT API'}
 
+
+
     @app.route('/test-db')
     def test_db():
         try:
             with db.engine.connect() as conn:
                 result = conn.execute(text("SELECT 1")).fetchone()
                 if result and result[0] == 1:
-                    return jsonify({'status': 'Database connection successful no worry'}), 200
+                    return jsonify({'status': 'Database connection successful'}), 200
                 raise Exception("Unexpected query result")
         except Exception as e:
             app.logger.error(f"Database test failed: {str(e)}")
             return jsonify({'error': 'Database connection failed', 'details': str(e)}), 500
-    
+
     @app.route('/avatars/<filename>')
     def serve_avatar(filename):
         return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'avatars'), filename)
-    
+
     @app.route('/task-files/<task_id>/<filename>')
     def serve_task_file(task_id, filename):
         try:
             safe_filename = secure_filename(filename)
             if not safe_filename or safe_filename != filename:
                 return jsonify({'error': 'Invalid filename'}), 400
-                
             directory = os.path.join(app.config['UPLOAD_FOLDER'], 'tasks', task_id)
             file_path = os.path.join(directory, safe_filename)
             if not os.path.exists(file_path):
                 return jsonify({'error': 'File not found'}), 404
-                
             return send_from_directory(directory, safe_filename)
         except Exception as e:
             app.logger.error(f"Error serving task file: {str(e)}")
@@ -215,47 +223,25 @@ def create_app():
         response.headers['Content-Security-Policy'] = "default-src 'self'"
         return response
 
-    # Error handlers
     @app.errorhandler(422)
     def handle_unprocessable_entity(err):
-        return jsonify({
-            "error": "Unprocessable Entity",
-            "message": "The request was well-formed but contained semantic errors"
-        }), 422
+        return jsonify({"error": "Unprocessable Entity", "message": "The request was well-formed but contained semantic errors"}), 422
 
     @app.errorhandler(400)
     def handle_bad_request(err):
-        return jsonify({
-            "error": "Bad Request",
-            "message": "The request could not be understood by the server"
-        }), 400
+        return jsonify({"error": "Bad Request", "message": "The request could not be understood by the server"}), 400
 
     @app.errorhandler(401)
     def handle_unauthorized(err):
-        return jsonify({
-            "error": "Session expired",
-            "message": "Your login session has expired. Please login again.",
-            "action": "login_required",
-            "redirect": "/login"
-        }), 401
+        return jsonify({"error": "Session expired", "message": "Your login session has expired. Please login again.", "action": "login_required", "redirect": "/login"}), 401
 
     @app.errorhandler(ExpiredSignatureError)
     def handle_expired_token(e):
-        return jsonify({
-            "error": "Session expired", 
-            "message": "Your login session has expired. Please login again.",
-            "action": "login_required",
-            "redirect": "/login"
-        }), 401
+        return jsonify({"error": "Session expired", "message": "Your login session has expired. Please login again.", "action": "login_required", "redirect": "/login"}), 401
 
     @app.errorhandler(NoAuthorizationError)
     def handle_missing_token(e):
-        return jsonify({
-            "error": "Session expired",
-            "message": "Your login session has expired. Please login again.", 
-            "action": "login_required",
-            "redirect": "/login"
-        }), 401
+        return jsonify({"error": "Session expired", "message": "Your login session has expired. Please login again.", "action": "login_required", "redirect": "/login"}), 401
 
     @app.teardown_appcontext
     def shutdown_session(exception=None):

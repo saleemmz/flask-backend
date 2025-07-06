@@ -7,7 +7,7 @@ from extensions import db
 from flask import send_file
 from io import BytesIO
 
-activity_bp = Blueprint('activity', __name__, url_prefix='/api/activity')
+activity_bp = Blueprint('activity', __name__)
 
 @activity_bp.route('/logs', methods=['GET'])
 @jwt_required()
