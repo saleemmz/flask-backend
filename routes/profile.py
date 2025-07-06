@@ -7,6 +7,8 @@ from extensions import db
 from models.user import User
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.activitylogger import log_activity
+from flask import send_from_directory
+
 
 
 # Configure logging
@@ -27,6 +29,11 @@ profile_bp = Blueprint('profile', __name__)
 
 # Dynamically get BASE_URL from env or default localhost
 BASE_URL = os.getenv('BASE_URL', 'http://localhost:5001')
+
+@profile_bp.route('/avatars/<filename>')
+def serve_avatar(filename):
+    avatars_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'avatars')
+    return send_from_directory(avatars_dir, filename)
 
 
 @profile_bp.route('/me', methods=['GET'])
