@@ -8,6 +8,7 @@ from models.user import User
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.activitylogger import log_activity
 
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -23,6 +24,10 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 profile_bp = Blueprint('profile', __name__)
+
+# Dynamically get BASE_URL from env or default localhost
+BASE_URL = os.getenv('BASE_URL', 'http://localhost:5001')
+
 
 @profile_bp.route('/me', methods=['GET'])
 @jwt_required()
@@ -41,11 +46,9 @@ def get_profile():
             logger.error(f"User not found with ID: {user_id}")
             return jsonify({'error': 'User not found'}), 404
 
-      
-
-        # Construct full URL for avatar
+        # Construct full URL for avatar using BASE_URL
         avatar_url = (
-            f"http://localhost:5001/avatars/{os.path.basename(user.avatar_url)}"
+            f"{BASE_URL}/avatars/{os.path.basename(user.avatar_url)}"
             if user.avatar_url else ''
         )
 
@@ -69,6 +72,7 @@ def get_profile():
     except Exception as e:
         logger.error(f"Error fetching profile: {str(e)}", exc_info=True)
         return jsonify({'error': 'Failed to fetch profile data'}), 500
+
 
 @profile_bp.route('/update', methods=['PUT'])
 @jwt_required()
@@ -128,8 +132,9 @@ def update_profile():
         # Log profile update if any changes were made
         if changes:
             log_activity(user_id, f"Updated profile: {', '.join(changes)}", "profile")
+
         avatar_url = (
-            f"http://localhost:5001/avatars/{os.path.basename(user.avatar_url)}"
+            f"{BASE_URL}/avatars/{os.path.basename(user.avatar_url)}"
             if user.avatar_url else ''
         )
 
@@ -154,6 +159,7 @@ def update_profile():
         db.session.rollback()
         logger.error(f"Error updating profile: {str(e)}", exc_info=True)
         return jsonify({'error': 'Failed to update profile'}), 500
+
 
 @profile_bp.route('/update-avatar', methods=['POST'])
 @jwt_required()
@@ -198,8 +204,8 @@ def update_avatar():
         # Log avatar update
         log_activity(user_id, "Updated profile avatar", "profile")
 
-        # Construct full URL
-        avatar_url = f"http://localhost:5001/avatars/{filename}"
+        # Construct full URL with BASE_URL
+        avatar_url = f"{BASE_URL}/avatars/{filename}"
 
         return jsonify({
             'avatarUrl': avatar_url,
