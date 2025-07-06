@@ -56,7 +56,7 @@ def create_app():
     print("Is Development =", is_dev)
 
     # Base config
-    upload_folder = os.getenv('UPLOAD_FOLDER', os.path.join(os.getcwd(), 'uploads'))
+    upload_folder = os.getenv('UPLOAD_FOLDER', '/tmp/uploads')
     app.config['UPLOAD_FOLDER'] = upload_folder
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
