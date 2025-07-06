@@ -84,6 +84,7 @@ def create_app():
         'JWT_SECRET_KEY': os.getenv('JWT_SECRET_KEY'),
         'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=6),
         'JWT_TOKEN_LOCATION': ['cookies', 'headers'],
+         'JWT_COOKIE_DOMAIN': 'flask-backend-2fc9.onrender.com',
         'JWT_COOKIE_CSRF_PROTECT': False,
         'JWT_ACCESS_COOKIE_PATH': '/',
         'JWT_REFRESH_COOKIE_PATH': '/',
