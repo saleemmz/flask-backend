@@ -44,39 +44,36 @@ def get_manager_tasks():
         
         tasks_data = []
         for task in tasks:
-            assignees = []
-            for assignee in task.assignees:
-                assignees.append({
-                    'id': assignee.id,
-                    'name': assignee.full_name,
-                    'avatar': assignee.avatar_url or '/placeholder.svg'
-                })
+            # Process assignees
+            assignees = [{
+                'id': assignee.id,
+                'name': assignee.full_name,
+                'avatar': assignee.avatar_url or '/placeholder.svg',
+                'role': assignee.role or 'staff'
+            } for assignee in task.assignees]
             
+            # Process files
             processed_files = set()
             files = []
-            
-            # Only get files that actually exist on disk (file_size > 0)
             all_files = File.query.filter(
                 File.task_id == task.id,
-                File.file_size > 0  # Only get files that have been actually uploaded
+                File.file_size > 0
             ).all()
             
             for file in all_files:
                 file_identifier = f"{file.file_name}_{file.uploaded_by}"
-                if file_identifier in processed_files:
-                    continue
-                    
-                processed_files.add(file_identifier)
-                
-                uploaded_by_user = User.query.get(file.uploaded_by)
-                files.append({
-                    'name': file.file_name,
-                    'size': file.get_formatted_size(),
-                    'uploadedBy': uploaded_by_user.full_name if uploaded_by_user else 'Unknown',
-                    'date': file.created_at.strftime('%Y-%m-%d') if file.created_at else None,
-                    'isEncrypted': file.is_encrypted
-                })
+                if file_identifier not in processed_files:
+                    processed_files.add(file_identifier)
+                    uploaded_by_user = User.query.get(file.uploaded_by)
+                    files.append({
+                        'name': file.file_name,
+                        'size': file.get_formatted_size(),
+                        'uploadedBy': uploaded_by_user.full_name if uploaded_by_user else 'Unknown',
+                        'date': file.created_at.strftime('%Y-%m-%d') if file.created_at else None,
+                        'isEncrypted': file.is_encrypted
+                    })
             
+            # Process comments
             comment_text = 'No comments'
             if task.comments:
                 latest_comment = sorted(task.comments, key=lambda c: c.created_at, reverse=True)[0]
@@ -91,9 +88,7 @@ def get_manager_tasks():
                 'deadline': task.deadline.replace(tzinfo=timezone.utc).isoformat() if task.deadline else None,
                 'created': task.created_at.strftime('%Y-%m-%d') if task.created_at else None,
                 'lastUpdated': task.updated_at.strftime('%Y-%m-%d') if task.updated_at else None,
-                'assignee': assignees[0]['name'] if assignees else 'Unassigned',
-                'assigneeId': assignees[0]['id'] if assignees else '',
-                'assigneeAvatar': assignees[0]['avatar'] if assignees else '/placeholder.svg',
+                'assignees': assignees,  # Now contains full assignee list
                 'comments': comment_text,
                 'files': files
             })
@@ -236,7 +231,7 @@ def invite_staff():
             return jsonify({'error': 'Email is required'}), 400
             
         
-        invitation_link = f"http://localhost:5173/signup"
+        invitation_link = f"https://secureprojectracker.netlify.app/signup"
         
         if method == 'email':
             # Send email with invitation link
