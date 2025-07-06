@@ -102,6 +102,7 @@ def export_activity_logs():
     
     return generate_csv(logs)
 
+
 def generate_csv(logs):
     import csv
     from io import StringIO
@@ -131,3 +132,5 @@ def generate_csv(logs):
         download_name=f"activity-logs-{datetime.utcnow().strftime('%Y-%m-%d')}.csv",
         mimetype='text/csv'
     )
+    
+    
