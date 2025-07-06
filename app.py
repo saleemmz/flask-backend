@@ -56,10 +56,16 @@ def create_app():
     print("Is Development =", is_dev)
 
     # Base config
-    upload_folder = os.getenv('UPLOAD_FOLDER', '/tmp/uploads')
+    # Detect Render environment (RENDER=true is automatically set by Render)
+    if os.getenv("RENDER"):
+     upload_folder = '/tmp/uploads'
+    else:
+     upload_folder = os.getenv('UPLOAD_FOLDER', os.path.join(os.getcwd(), 'uploads'))
+
     app.config['UPLOAD_FOLDER'] = upload_folder
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+
 
     app.config.update({
         'SECRET_KEY': os.getenv('SECRET_KEY'),
