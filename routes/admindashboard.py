@@ -5,6 +5,7 @@ from models.activity import Activity
 from models.task import Task, TaskAssignee, File, Comment, Notification, KeyHolder
 from extensions import db
 from datetime import datetime
+from sqlalchemy import func
 import traceback 
 from utils.activitylogger import log_activity
 import logging
@@ -262,12 +263,15 @@ def get_stats():
         active_users = User.query.filter_by(is_verified=True).count()
         inactive_users = total_users - active_users
         
+        
         roles = db.session.query(
             User.position,
             db.func.count(User.id).label('count')
         ).group_by(User.position).all()
         
-        role_distribution = {role[0]: role[1] for role in roles}
+        #role_distribution = {role[0]: role[1] for role in roles}
+        roles = db.session.query(User.role, func.count()).group_by(User.role).all()
+        role_distribution = {role.capitalize(): count for role, count in roles}
 
         # Task statistics
         total_tasks = Task.query.count()
