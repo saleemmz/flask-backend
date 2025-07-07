@@ -32,7 +32,6 @@ def get_users():
         if not current_user or current_user.role != 'admin':
             return jsonify({'error': 'Unauthorized'}), 403
 
-       
         users = User.query.all()
         
         users_data = []
@@ -42,7 +41,8 @@ def get_users():
                 'name': f"{user.first_name} {user.last_name}",
                 'username': user.username,
                 'email': user.email,
-                'role': user.position,
+                'position': user.position,  # Keep position for display if needed
+                'role': user.role,         # Add role for role management
                 'status': 'Active' if user.is_verified else 'Inactive',
                 'avatar': user.avatar_url or '/placeholder.svg',
                 'department': 'General',

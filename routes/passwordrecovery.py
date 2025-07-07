@@ -234,70 +234,50 @@ def reset_password():
 
         # Verify token with better error handling
         try:
-            # Log the token for debugging (first 10 chars only for security)
             logger.info(f"Attempting to decode token: {reset_token[:10]}...")
-            
-            # Use decode_token directly instead of get_jwt_identity
-            # decode_token is designed to decode a token string, while get_jwt_identity is for protected routes
             token_data = decode_token(reset_token)
-            logger.info(f"Token decoded successfully: {token_data}")
-            
-            # Extract identity from the token
-            identity = token_data['sub']  # 'sub' contains the identity we stored
-            logger.info(f"Token identity: {identity}")
-            
-            # Parse the identity string
+            identity = token_data['sub']
+
             if not isinstance(identity, str) or not identity.startswith("reset_"):
                 logger.error(f"Invalid token format: {identity}")
                 return jsonify({'error': 'Invalid token format'}), 400
-                
-            # Extract user ID and email from the identity string
+
             parts = identity.split('_', 2)
             if len(parts) != 3:
                 logger.error(f"Invalid token parts: {parts}")
                 return jsonify({'error': 'Invalid token format'}), 400
-                
+
             user_id = int(parts[1])
             user_email = parts[2]
-            
+
             logger.info(f"Extracted user_id: {user_id}, email: {user_email}")
-            
         except Exception as e:
             logger.error(f"Token validation error: {str(e)}\n{traceback.format_exc()}")
             return jsonify({'error': 'Invalid or expired token'}), 400
 
-        # Find user
-        user = None
-        for attempt in range(3):
-            try:
-                user = User.query.get(user_id)
-                break
-            except Exception as e:
-                if attempt == 2:
-                    logger.error(f"User lookup failed: {str(e)}")
-                    return jsonify({'error': 'Database error'}), 500
-                time.sleep(0.5)
-
+        # Find user with explicit query
+        user = db.session.query(User).filter_by(id=user_id).first()
         if not user:
             logger.error(f"User not found: {user_id}")
             return jsonify({'error': 'User not found'}), 400
-            
+
         if user.email != user_email:
             logger.error(f"Email mismatch: token {user_email} vs db {user.email}")
             return jsonify({'error': 'Invalid user'}), 400
 
-        # Validate and set new password
+        # Set and persist password properly
         try:
-            user.password = new_password
+            user.password = new_password  # Calls @password.setter
+            db.session.add(user)
+            db.session.flush()
             db.session.commit()
-            
-            # Log successful password reset activity
+
             log_activity(
                 user_id=user.id,
-                action=f"Successfully reset password",
+                action="Successfully reset password",
                 category="password"
             )
-            
+
             logger.info(f"Password reset successful for user {user.email}")
             return jsonify({'message': 'Password reset successfully'}), 200
         except ValueError as e:

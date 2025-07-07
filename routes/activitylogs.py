@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models.activity import Activity
 from models.user import User
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from extensions import db
 from flask import send_file
 from io import BytesIO
@@ -51,7 +51,7 @@ def get_activity_logs():
         )
 
     # Get results
-    logs = query.order_by(Activity.timestamp.desc()).limit(100).all()
+    logs = query.order_by(Activity.timestamp.desc()).all() 
     
     return jsonify({
         'logs': [log.to_dict() for log in logs]
@@ -65,7 +65,7 @@ def export_activity_logs():
         return jsonify({'error': 'Unauthorized'}), 403
 
     # Get filters from query params
-    date_range = request.args.get('date_range', 'today')
+    date_range = request.args.get('date_range', 'all')
     category = request.args.get('category', 'all')
     user_id = request.args.get('user_id', None)
     search = request.args.get('search', '')
@@ -115,7 +115,8 @@ def generate_csv(logs):
     
     # Write rows
     for log in logs:
-        timestamp = datetime.fromisoformat(log.timestamp.isoformat())
+        # Handle timezone-aware timestamp properly
+        timestamp = log.timestamp.replace(tzinfo=timezone.utc) if log.timestamp.tzinfo is None else log.timestamp
         writer.writerow([
             timestamp.strftime('%Y-%m-%d'),
             timestamp.strftime('%H:%M:%S'),
