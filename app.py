@@ -13,6 +13,7 @@ from jwt import ExpiredSignatureError
 from apscheduler.schedulers.background import BackgroundScheduler
 import time
 import atexit
+from models import *
 from sqlalchemy import text
 
 # Blueprints
