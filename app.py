@@ -18,10 +18,8 @@ from werkzeug.utils import secure_filename
 load_dotenv()
 pymysql.install_as_MySQLdb()
 
-# Ensure models are imported so Alembic sees them
-from models import User, Verification, UserPreference
 
-# Blueprints
+# Import blueprints
 from routes.auth import auth_bp
 from routes.profile import profile_bp
 from routes.passwordrecovery import password_recovery_bp
@@ -126,7 +124,7 @@ def create_app():
         scheduler.start()
         atexit.register(lambda: scheduler.shutdown() if scheduler else None)
 
-    # Blueprints
+    # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(profile_bp, url_prefix='/profile')
     app.register_blueprint(password_recovery_bp, url_prefix='/auth')
