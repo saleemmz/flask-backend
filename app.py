@@ -18,7 +18,6 @@ from werkzeug.utils import secure_filename
 load_dotenv()
 pymysql.install_as_MySQLdb()
 
-
 # Import blueprints
 from routes.auth import auth_bp
 from routes.profile import profile_bp
@@ -239,13 +238,16 @@ def create_app():
 
 app = create_app()
 
+# ✅ Auto-create tables in development or on Render
+if __name__ == '__main__' or os.getenv('RENDER'):
+    with app.app_context():
+        try:
+            db.create_all()
+            app.logger.info("Tables created.")
+        except Exception as e:
+            app.logger.error(f"DB init failed: {str(e)}")
+
+# Run locally
 if __name__ == '__main__':
     app_env = os.getenv('APP_ENV', 'development').lower()
-    if app_env in ['development', 'testing']:
-        with app.app_context():
-            try:
-                db.create_all()
-                app.logger.info("Tables created locally.")
-            except Exception as e:
-                app.logger.error(f"DB init failed: {str(e)}")
     app.run(debug=(app_env == 'development'), port=5001, host='0.0.0.0')
