@@ -205,6 +205,7 @@ def create_app():
     @app.route('/avatars/<filename>')
     def serve_avatar(filename):
         return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'avatars'), filename)
+    print(f"Serving avatar from: {file_path}")
 
     @app.route('/task-files/<task_id>/<filename>')
     def serve_task_file(task_id, filename):
