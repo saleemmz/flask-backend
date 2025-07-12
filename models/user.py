@@ -2,6 +2,8 @@ from flask import Flask, jsonify, request, send_from_directory
 from extensions import db, mail, cors, migrate
 import os
 from dotenv import load_dotenv
+import pymysql
+
 from datetime import timedelta
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
 from flask_jwt_extended.exceptions import NoAuthorizationError
