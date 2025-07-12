@@ -13,7 +13,6 @@ from jwt import ExpiredSignatureError
 from apscheduler.schedulers.background import BackgroundScheduler
 import time
 import atexit
-from os import file_path
 from sqlalchemy import text
 
 # Blueprints
@@ -206,7 +205,8 @@ def create_app():
     @app.route('/avatars/<filename>')
     def serve_avatar(filename):
         return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'avatars'), filename)
-    print(f"Serving avatar from: {file_path}")
+    print(f"Serving avatar from: {os.path.join(app.config['UPLOAD_FOLDER'], 'avatars')}")
+
 
     @app.route('/task-files/<task_id>/<filename>')
     def serve_task_file(task_id, filename):
